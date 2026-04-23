@@ -83,6 +83,7 @@ def analyze(client, text: str, model: str = "") -> dict:
             result = _extract_json(raw)
             if m != models[0]:
                 logger.info("降级使用模型: %s", m)
+            result["_model"] = m
             return result
         except Exception as e:
             logger.warning("模型 %s 分析失败: %s", m, e)
@@ -94,7 +95,7 @@ def analyze(client, text: str, model: str = "") -> dict:
         try:
             translation = _translate_only(client, text, m)
             logger.info("纯翻译兜底成功，模型: %s", m)
-            return {
+            return {"_model": m,
                 "translation": translation,
                 "market": {
                     "stocks": {"signal": "中性", "reason": "分析失败，无法判断"},

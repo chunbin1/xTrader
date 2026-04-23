@@ -21,6 +21,7 @@ def _sign(secret: str) -> tuple[str, str]:
 
 
 def send(webhook: str, account: dict, post: dict, result: dict, secret: str = "", model: str = "") -> bool:
+    model = result.get("_model") or model or "GLM"
     """发送分析结果到飞书。
 
     account: accounts.json 中的单条配置
