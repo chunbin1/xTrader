@@ -1,0 +1,6 @@
+.env
+seen_trump.json
+monitor.pid
+monitor.log
+__pycache__/
+*.pyc
