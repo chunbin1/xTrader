@@ -108,9 +108,9 @@ def process_account(account: dict, zhipu_client, webhook: str,
         try:
             result = analyzer.analyze(zhipu_client, post["text"], model)
         except Exception as e:
-            logger.error("[%s] 分析失败: %s", name, e)
-            result = {"translation": post["text"], "market": {}, "irrelevant": True}
-        sender.send(webhook, account, post, result, secret)
+            logger.error("[%s] 翻译分析完全失败，跳过推送: %s", name, e)
+            continue
+        sender.send(webhook, account, post, result, secret, model)
         time.sleep(1)
 
     return True

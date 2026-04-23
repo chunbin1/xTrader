@@ -20,7 +20,7 @@ def _sign(secret: str) -> tuple[str, str]:
     return ts, sig
 
 
-def send(webhook: str, account: dict, post: dict, result: dict, secret: str = "") -> bool:
+def send(webhook: str, account: dict, post: dict, result: dict, secret: str = "", model: str = "") -> bool:
     """发送分析结果到飞书。
 
     account: accounts.json 中的单条配置
@@ -32,6 +32,7 @@ def send(webhook: str, account: dict, post: dict, result: dict, secret: str = ""
     emoji = PLATFORM_EMOJI.get(platform, "📢")
 
     translation = result.get("translation", "")
+    summary = result.get("summary") or ""
     market = result.get("market", {})
     irrelevant = result.get("irrelevant", False)
 
@@ -71,6 +72,7 @@ def send(webhook: str, account: dict, post: dict, result: dict, secret: str = ""
             },
             "elements": [
                 {"tag": "div", "text": {"tag": "lark_md", "content": f"**🕐 {post['published']}**"}},
+                *([{"tag": "div", "text": {"tag": "lark_md", "content": f"**💡 概要** {summary}"}}] if summary else []),
                 {"tag": "hr"},
                 {"tag": "div", "text": {"tag": "lark_md", "content": f"**📝 原文**\n{original}"}},
                 {"tag": "hr"},
@@ -82,7 +84,7 @@ def send(webhook: str, account: dict, post: dict, result: dict, secret: str = ""
                      "url": post["link"], "type": "default"}
                 ]},
                 {"tag": "note", "elements": [
-                    {"tag": "plain_text", "content": "🤖 智谱 GLM 自动翻译分析 · 仅供参考"}
+                    {"tag": "plain_text", "content": f"🤖 {model or 'GLM'} 自动翻译分析 · 仅供参考"}
                 ]},
             ],
         },
