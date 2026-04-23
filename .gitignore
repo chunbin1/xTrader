@@ -6,6 +6,8 @@ elon_monitor.*
 __pycache__/
 *.pyc
 *.db
+*.db-shm
+*.db-wal
 feishu.py
 fetcher.py
 main.py

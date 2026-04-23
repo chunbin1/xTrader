@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 from Scweet.client import Scweet
+from Scweet.config import ScweetConfig
 from Scweet.exceptions import AuthError, AccountSessionAuthError, AccountPoolExhausted
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,13 @@ def fetch(account: dict, auth_token: str, limit: int = 20) -> list[dict]:
     seen = _load_seen(handle)
 
     try:
-        client = Scweet(auth_token=auth_token)
+        client = Scweet(
+            auth_token=auth_token,
+            config=ScweetConfig(
+                daily_requests_limit=500,
+                daily_tweets_limit=5000,
+            ),
+        )
         tweets = client.get_profile_tweets(handle, limit=limit)
     except (AuthError, AccountSessionAuthError, AccountPoolExhausted) as e:
         raise CookieExpiredError(str(e)) from e
@@ -52,7 +59,7 @@ def fetch(account: dict, auth_token: str, limit: int = 20) -> list[dict]:
         if not text or len(text) < 10:
             seen.add(tid)
             continue
-        raw_time = t.get("created_at", "")
+        raw_time = t.get("timestamp") or t.get("created_at", "")
         try:
             pub = datetime.strptime(raw_time, "%a %b %d %H:%M:%S +0000 %Y")\
                 .replace(tzinfo=timezone.utc).astimezone(CST)\
@@ -62,7 +69,7 @@ def fetch(account: dict, auth_token: str, limit: int = 20) -> list[dict]:
         new_tweets.append({
             "id": tid,
             "text": text,
-            "link": t.get("url") or f"https://x.com/{handle}/status/{tid}",
+            "link": t.get("tweet_url") or t.get("url") or f"https://x.com/{handle}/status/{tid}",
             "published": pub,
         })
         seen.add(tid)

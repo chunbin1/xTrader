@@ -18,6 +18,9 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, timezone, timedelta
+
+CST = timezone(timedelta(hours=8))
 
 from dotenv import load_dotenv
 from zhipuai import ZhipuAI
@@ -30,14 +33,40 @@ from fetchers.x import CookieExpiredError
 
 load_dotenv()
 
+_log_level = logging.DEBUG if os.getenv("DEBUG") else logging.INFO
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
+    level=_log_level,
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
 ACCOUNTS_FILE = os.path.join(os.path.dirname(__file__), "accounts.json")
+
+
+def in_quiet_hours(quiet: str) -> bool:
+    """判断当前北京时间是否在免打扰时段内。
+    quiet 格式：'23:00-07:00'，支持跨午夜。
+    """
+    if not quiet:
+        return False
+    try:
+        start_str, end_str = quiet.strip().split("-")
+        sh, sm = map(int, start_str.split(":"))
+        eh, em = map(int, end_str.split(":"))
+    except Exception:
+        logger.warning("QUIET_HOURS 格式错误，应为 HH:MM-HH:MM，当前值: %s", quiet)
+        return False
+
+    now = datetime.now(CST)
+    cur = now.hour * 60 + now.minute
+    start = sh * 60 + sm
+    end = eh * 60 + em
+
+    if start <= end:          # 同日，如 09:00-18:00
+        return start <= cur < end
+    else:                     # 跨午夜，如 23:00-07:00
+        return cur >= start or cur < end
 
 
 def load_accounts() -> list[dict]:
@@ -96,7 +125,9 @@ def run_once(zhipu_client, webhook: str, secret: str, model: str, auth_token: st
 def main():
     parser = argparse.ArgumentParser(description="社交媒体监控推送飞书")
     parser.add_argument("--watch", action="store_true", help="持续监控模式")
-    parser.add_argument("--interval", type=int, default=60, help="轮询间隔（秒），默认 60")
+    parser.add_argument("--interval", type=int,
+                        default=int(os.getenv("POLL_INTERVAL", "120")),
+                        help="轮询间隔（秒），默认读取 .env 中的 POLL_INTERVAL")
     args = parser.parse_args()
 
     zhipu_key = os.getenv("ZHIPU_API_KEY")
@@ -112,12 +143,18 @@ def main():
 
     zhipu_client = ZhipuAI(api_key=zhipu_key)
 
+    quiet = os.getenv("QUIET_HOURS", "")
+
     if args.watch:
-        logger.info("🚀 监控启动，间隔 %ds，共 %d 个账号",
-                    args.interval, len(load_accounts()))
+        logger.info("🚀 监控启动，间隔 %ds，共 %d 个账号%s",
+                    args.interval, len(load_accounts()),
+                    f"，免打扰时段 {quiet}" if quiet else "")
         while True:
             try:
-                run_once(zhipu_client, webhook, secret, model, auth_token)
+                if in_quiet_hours(quiet):
+                    logger.info("😴 当前处于免打扰时段（%s），跳过本轮", quiet)
+                else:
+                    run_once(zhipu_client, webhook, secret, model, auth_token)
             except Exception as e:
                 logger.error("主循环异常: %s", e)
             time.sleep(args.interval)
