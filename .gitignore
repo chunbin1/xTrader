@@ -1,6 +1,11 @@
 .env
-seen_trump.json
+seen_*.json
 monitor.pid
 monitor.log
+elon_monitor.*
 __pycache__/
 *.pyc
+*.db
+feishu.py
+fetcher.py
+main.py

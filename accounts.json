@@ -1,0 +1,13 @@
+[
+  {
+    "name": "川普",
+    "platform": "truthsocial",
+    "handle": "realDonaldTrump",
+    "rss_url": "https://trumpstruth.org/feed"
+  },
+  {
+    "name": "马斯克",
+    "platform": "x",
+    "handle": "elonmusk"
+  }
+]
