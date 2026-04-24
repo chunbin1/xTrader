@@ -56,6 +56,7 @@ def fetch(account: dict, auth_token: str, limit: int = 20) -> list[dict]:
         if tid in seen:
             continue
         text = t.get("text") or t.get("full_text", "")
+        text = " ".join(text.split())  # 折叠换行/多余空白为单个空格
         if not text or len(text) < 10:
             seen.add(tid)
             continue

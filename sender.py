@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import logging
+import re
 import time
 
 import requests
@@ -10,6 +11,11 @@ logger = logging.getLogger(__name__)
 
 SIGNAL_EMOJI = {"利好": "📈", "利空": "📉", "中性": "➡️"}
 PLATFORM_EMOJI = {"truthsocial": "🇺🇸", "x": "🚀"}
+
+
+def _normalize(text: str) -> str:
+    """折叠所有空白字符（含换行、全角空格 U+3000）为单个英文空格。"""
+    return re.sub(r"[\s\u3000]+", " ", text).strip()
 
 
 def _sign(secret: str) -> tuple[str, str]:
@@ -26,7 +32,7 @@ def _send_raw(webhook: str, account: dict, post: dict, secret: str = "") -> bool
     platform = account.get("platform", "x")
     emoji = PLATFORM_EMOJI.get(platform, "📢")
 
-    original = post["text"].replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+    original = _normalize(post["text"])
     if len(original) > 400:
         original = original[:400] + "..."
 
@@ -119,12 +125,11 @@ def send(webhook: str, account: dict, post: dict, result: dict, secret: str = ""
     else:
         color = "blue"
 
-    # 换行符在飞书 lark_md 里会产生浮动块，统一替换成空格
-    original = post["text"].replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+    original = _normalize(post["text"])
     if len(original) > 400:
         original = original[:400] + "..."
 
-    translation = translation.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+    translation = _normalize(translation)
 
     card = {
         "msg_type": "interactive",
