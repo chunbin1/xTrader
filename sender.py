@@ -26,7 +26,7 @@ def _send_raw(webhook: str, account: dict, post: dict, secret: str = "") -> bool
     platform = account.get("platform", "x")
     emoji = PLATFORM_EMOJI.get(platform, "📢")
 
-    original = post["text"]
+    original = post["text"].replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
     if len(original) > 400:
         original = original[:400] + "..."
 
@@ -119,9 +119,12 @@ def send(webhook: str, account: dict, post: dict, result: dict, secret: str = ""
     else:
         color = "blue"
 
-    original = post["text"]
+    # 换行符在飞书 lark_md 里会产生浮动块，统一替换成空格
+    original = post["text"].replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
     if len(original) > 400:
         original = original[:400] + "..."
+
+    translation = translation.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
 
     card = {
         "msg_type": "interactive",
