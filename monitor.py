@@ -22,6 +22,7 @@ from datetime import datetime, timezone, timedelta
 
 CST = timezone(timedelta(hours=8))
 
+import httpx
 from dotenv import load_dotenv
 from zhipuai import ZhipuAI
 
@@ -29,6 +30,7 @@ import analyzer
 import sender
 from fetchers import truthsocial
 from fetchers import x as x_fetcher
+from fetchers import market as market_fetcher
 from fetchers.x import CookieExpiredError
 
 load_dotenv()
@@ -75,7 +77,8 @@ def load_accounts() -> list[dict]:
 
 
 def process_account(account: dict, zhipu_client, webhook: str,
-                    secret: str, model: str, auth_token: str) -> bool:
+                    secret: str, model: str, auth_token: str,
+                    market_context: str = "", market_snapshot: dict = None) -> bool:
     """处理单个账号，返回 False 表示 Cookie 失效需停止该账号。"""
     name = account.get("name", account["handle"])
     platform = account["platform"]
@@ -106,20 +109,24 @@ def process_account(account: dict, zhipu_client, webhook: str,
     for post in posts:
         logger.info("[%s] 分析: %s...", name, post["text"][:60])
         try:
-            result = analyzer.analyze(zhipu_client, post["text"], model)
+            result = analyzer.analyze(zhipu_client, post["text"], model,
+                                      market_context=market_context)
         except Exception as e:
-            logger.error("[%s] 翻译分析完全失败，跳过推送: %s", name, e)
-            continue
-        sender.send(webhook, account, post, result, secret, model)
+            logger.error("[%s] AI 服务不可用，推送原文: %s", name, e)
+            result = {"_raw": True}
+        sender.send(webhook, account, post, result, secret, model,
+                    market_snapshot=market_snapshot)
         time.sleep(1)
 
     return True
 
 
 def run_once(zhipu_client, webhook: str, secret: str, model: str, auth_token: str):
+    market_context, market_snapshot = market_fetcher.fetch()
     accounts = load_accounts()
     for account in accounts:
-        process_account(account, zhipu_client, webhook, secret, model, auth_token)
+        process_account(account, zhipu_client, webhook, secret, model, auth_token,
+                        market_context, market_snapshot)
 
 
 def main():
@@ -141,7 +148,11 @@ def main():
     if not webhook:
         raise SystemExit("❌ 请在 .env 中设置 FEISHU_WEBHOOK_URL")
 
-    zhipu_client = ZhipuAI(api_key=zhipu_key)
+    zhipu_client = ZhipuAI(
+        api_key=zhipu_key,
+        timeout=httpx.Timeout(connect=5.0, read=40.0, write=10.0, pool=5.0),
+        max_retries=0,
+    )
 
     quiet = os.getenv("QUIET_HOURS", "")
 

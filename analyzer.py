@@ -24,8 +24,6 @@ SYSTEM_PROMPT = """你是专业的政治新闻翻译兼金融市场分析师。
 
 irrelevant=true 表示帖子与市场完全无关，此时 market 各项填中性即可。"""
 
-TRANSLATE_ONLY_PROMPT = "将以下英文翻译成简体中文，只输出译文，不加任何解释："
-
 MODEL_FALLBACK = [
     "glm-4.7",
     "glm-4.6v-flashx",
@@ -47,34 +45,20 @@ def _extract_json(raw: str) -> dict:
     return json.loads(raw[start:end])
 
 
-def _translate_only(client, text: str, model: str) -> str:
-    """单独做一次纯翻译，作为最终兜底。"""
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": TRANSLATE_ONLY_PROMPT},
-            {"role": "user", "content": text},
-        ],
-        temperature=0.3,
-    )
-    return resp.choices[0].message.content.strip()
-
-
-def analyze(client, text: str, model: str = "") -> dict:
-    """依次尝试 MODEL_FALLBACK 中的模型，失败自动降级。
-    全部失败时至少保证有中文翻译，不会把英文原文当译文推出去。
-    """
+def analyze(client, text: str, model: str = "", market_context: str = "") -> dict:
+    """依次尝试 MODEL_FALLBACK 中的模型，失败自动降级。全部失败则 raise RuntimeError。"""
     models = MODEL_FALLBACK if not model or model not in MODEL_FALLBACK else \
              MODEL_FALLBACK[MODEL_FALLBACK.index(model):]
 
-    # 第一轮：尝试完整分析（翻译 + 市场）
+    system_content = f"{market_context}\n\n{SYSTEM_PROMPT}" if market_context else SYSTEM_PROMPT
+
     last_err = None
     for m in models:
         try:
             resp = client.chat.completions.create(
                 model=m,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": system_content},
                     {"role": "user", "content": text},
                 ],
                 temperature=0.3,
@@ -89,22 +73,4 @@ def analyze(client, text: str, model: str = "") -> dict:
             logger.warning("模型 %s 分析失败: %s", m, e)
             last_err = e
 
-    # 第二轮：所有模型完整分析均失败，至少做纯翻译
-    logger.error("完整分析全部失败，尝试纯翻译兜底... 最后错误: %s", last_err)
-    for m in models:
-        try:
-            translation = _translate_only(client, text, m)
-            logger.info("纯翻译兜底成功，模型: %s", m)
-            return {"_model": m,
-                "translation": translation,
-                "market": {
-                    "stocks": {"signal": "中性", "reason": "分析失败，无法判断"},
-                    "oil":    {"signal": "中性", "reason": "分析失败，无法判断"},
-                    "rates":  {"signal": "中性", "reason": "分析失败，无法判断"},
-                },
-                "irrelevant": True,
-            }
-        except Exception as e:
-            logger.warning("纯翻译模型 %s 也失败: %s", m, e)
-
-    raise RuntimeError("翻译和分析全部失败")
+    raise RuntimeError("所有模型均失败，智谱服务不可用")

@@ -20,14 +20,73 @@ def _sign(secret: str) -> tuple[str, str]:
     return ts, sig
 
 
-def send(webhook: str, account: dict, post: dict, result: dict, secret: str = "", model: str = "") -> bool:
-    model = result.get("_model") or model or "GLM"
-    """发送分析结果到飞书。
+def _send_raw(webhook: str, account: dict, post: dict, secret: str = "") -> bool:
+    """AI 完全不可用时，仅推送原文。"""
+    name = account.get("name", account.get("handle", "未知"))
+    platform = account.get("platform", "x")
+    emoji = PLATFORM_EMOJI.get(platform, "📢")
 
-    account: accounts.json 中的单条配置
-    post:    fetcher 返回的帖子字典
-    result:  analyzer 返回的分析结果
-    """
+    original = post["text"]
+    if len(original) > 400:
+        original = original[:400] + "..."
+
+    card = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {"tag": "plain_text", "content": f"{emoji} {name} 新帖"},
+                "template": "grey",
+            },
+            "elements": [
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**🕐 {post['published']}**"}},
+                {"tag": "hr"},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**📝 原文**\n{original}"}},
+                {"tag": "action", "actions": [
+                    {"tag": "button", "text": {"tag": "plain_text", "content": "查看原帖"},
+                     "url": post["link"], "type": "default"}
+                ]},
+                {"tag": "note", "elements": [
+                    {"tag": "plain_text", "content": "⚠️ AI 服务暂时不可用，推送原文"}
+                ]},
+            ],
+        },
+    }
+
+    if secret:
+        ts, sig = _sign(secret)
+        card["timestamp"] = ts
+        card["sign"] = sig
+
+    try:
+        resp = requests.post(webhook, json=card, timeout=10)
+        data = resp.json()
+        ok = data.get("code") == 0 or data.get("StatusCode") == 0
+        if ok:
+            logger.info("[%s] 飞书推送成功（原文兜底）", name)
+        else:
+            logger.error("[%s] 飞书推送失败: %s", name, data)
+        return ok
+    except Exception as e:
+        logger.error("[%s] 飞书推送异常: %s", name, e)
+        return False
+
+
+def _snapshot_line(snapshot: dict) -> str:
+    parts = []
+    for d in snapshot.values():
+        pct = d["change_pct"]
+        if pct >= 0:
+            change = f"<font color='red'>▲{pct:.2f}%</font>"
+        else:
+            change = f"<font color='green'>▼{abs(pct):.2f}%</font>"
+        parts.append(f"**{d['label']}** ${d['price']:.2f} {change}")
+    return "📡 **行情快照**\n" + "　｜　".join(parts)
+
+
+def send(webhook: str, account: dict, post: dict, result: dict, secret: str = "", model: str = "", market_snapshot: dict = None) -> bool:
+    if result.get("_raw"):
+        return _send_raw(webhook, account, post, secret)
+    model = result.get("_model") or model or "GLM"
     name = account.get("name", account.get("handle", "未知"))
     platform = account.get("platform", "x")
     emoji = PLATFORM_EMOJI.get(platform, "📢")
@@ -80,6 +139,7 @@ def send(webhook: str, account: dict, post: dict, result: dict, secret: str = ""
                 {"tag": "div", "text": {"tag": "lark_md", "content": f"**🈶 译文**\n{translation}"}},
                 {"tag": "hr"},
                 {"tag": "div", "text": {"tag": "lark_md", "content": f"**📊 市场影响**\n{market_text}"}},
+                *([{"tag": "div", "text": {"tag": "lark_md", "content": _snapshot_line(market_snapshot)}}] if market_snapshot else []),
                 {"tag": "action", "actions": [
                     {"tag": "button", "text": {"tag": "plain_text", "content": "查看原帖"},
                      "url": post["link"], "type": "default"}
