@@ -1,14 +1,6 @@
 # xTrader
 
-社交媒体监控 → LLM 翻译分析 → 飞书推送
-
-[English](#english) | [中文](#中文)
-
----
-
-# xTrader
-
-Social Media Monitor → LLM Analysis → Feishu Push
+社交媒体监控 → LLM 翻译分析 → 飞书推送 | Social Media Monitor → LLM Analysis → Feishu Push
 
 [English](#english) | [中文](#中文)
 
