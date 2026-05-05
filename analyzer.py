@@ -74,3 +74,66 @@ def analyze(client, text: str, model: str = "", market_context: str = "") -> dic
             last_err = e
 
     raise RuntimeError("所有模型均失败，智谱服务不可用")
+
+
+MOVERS_PROMPT = """你是专业的美股市场分析师。
+以下是当前美股热点数据（涨幅榜、跌幅榜、成交量榜），部分个股附有雅虎财经最新新闻标题。
+请完成：
+1. **优先根据新闻标题**分析各股票涨跌的真实原因；无新闻时再根据行业知识推断，并注明"推断"
+2. 总结今日市场整体情绪（偏多/偏空/震荡），并给出一句话理由
+3. 点出最值得关注的 1-2 个热点
+
+严格输出以下 JSON，不要有任何多余文字：
+{
+  "sentiment": "偏多|偏空|震荡",
+  "sentiment_reason": "一句话理由",
+  "highlights": "最值得关注的热点，1-2句话",
+  "analysis": [
+    {"symbol": "TICKER", "reason": "涨跌原因一句话"},
+    ...
+  ]
+}
+
+只对涨跌幅超过 5% 的个股给出 reason，其余可忽略。"""
+
+
+def analyze_movers(client, movers: dict, model: str = "") -> dict:
+    """分析美股热点涨跌原因，失败返回空 dict。"""
+    models = MODEL_FALLBACK if not model or model not in MODEL_FALLBACK else \
+             MODEL_FALLBACK[MODEL_FALLBACK.index(model):]
+
+    def _fmt(items, label):
+        lines = [label]
+        for r in items:
+            line = f"  {r['symbol']} {r['change_pct']:+.2f}%  {r['name']}"
+            news = r.get("news", [])
+            if news:
+                line += "\n    新闻: " + " / ".join(news)
+            lines.append(line)
+        return "\n".join(lines)
+
+    user_content = "\n\n".join([
+        _fmt(movers.get("gainers", []), "【涨幅榜】"),
+        _fmt(movers.get("losers",  []), "【跌幅榜】"),
+        _fmt(movers.get("actives", []), "【成交量榜】"),
+    ])
+
+    for m in models:
+        try:
+            resp = client.chat.completions.create(
+                model=m,
+                messages=[
+                    {"role": "system", "content": MOVERS_PROMPT},
+                    {"role": "user",   "content": user_content},
+                ],
+                temperature=0.3,
+            )
+            raw = resp.choices[0].message.content.strip()
+            result = _extract_json(raw)
+            result["_model"] = m
+            return result
+        except Exception as e:
+            logger.warning("热点分析模型 %s 失败: %s", m, e)
+
+    logger.error("热点分析全部失败，跳过 AI 分析")
+    return {}

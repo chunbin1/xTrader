@@ -31,6 +31,7 @@ import sender
 from fetchers import truthsocial
 from fetchers import x as x_fetcher
 from fetchers import market as market_fetcher
+from fetchers import movers as movers_fetcher
 from fetchers.x import CookieExpiredError
 
 load_dotenv()
@@ -156,16 +157,34 @@ def main():
 
     quiet = os.getenv("QUIET_HOURS", "")
 
+    MARKET_PUSH_INTERVAL = 30 * 60  # 30分钟
+
     if args.watch:
         logger.info("🚀 监控启动，间隔 %ds，共 %d 个账号%s",
                     args.interval, len(load_accounts()),
                     f"，免打扰时段 {quiet}" if quiet else "")
+        last_market_push = 0.0
         while True:
             try:
+                # 社交媒体监控（受免打扰时段控制）
                 if in_quiet_hours(quiet):
                     logger.info("😴 当前处于免打扰时段（%s），跳过本轮", quiet)
                 else:
                     run_once(zhipu_client, webhook, secret, model, auth_token)
+
+                # 美股热点推送（开盘时段，每15分钟一次，不受免打扰限制）
+                now = time.time()
+                if movers_fetcher.is_market_open() and now - last_market_push >= MARKET_PUSH_INTERVAL:
+                    try:
+                        logger.info("📊 美股开盘中，推送热点榜单...")
+                        movers = movers_fetcher.fetch(count=5)
+                        if movers:
+                            analysis = analyzer.analyze_movers(zhipu_client, movers, model)
+                            sender.send_market_movers(webhook, movers, analysis, secret)
+                            last_market_push = now
+                    except Exception as e:
+                        logger.error("美股热点推送异常: %s", e)
+
             except Exception as e:
                 logger.error("主循环异常: %s", e)
             time.sleep(args.interval)

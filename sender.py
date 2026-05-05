@@ -220,3 +220,94 @@ def send_cookie_alert(webhook: str, account: dict, secret: str = ""):
         logger.error("[%s] Cookie 失效，已发送飞书告警", name)
     except Exception as e:
         logger.error("告警推送失败: %s", e)
+
+
+def send_market_movers(webhook: str, movers: dict, analysis: dict,
+                       secret: str = "") -> bool:
+    """推送美股热点榜单 + AI 分析到飞书。"""
+    from datetime import datetime, timezone, timedelta
+    ET = timezone(timedelta(hours=-4))
+    et_time = datetime.now(ET).strftime("%H:%M ET")
+
+    def _rows(items, show_vol=False):
+        lines = []
+        for r in items:
+            pct = r["change_pct"]
+            color = "red" if pct >= 0 else "green"
+            arrow = "▲" if pct >= 0 else "▼"
+            pct_str = f"<font color='{color}'>{arrow}{abs(pct):.2f}%</font>"
+            vol_str = f"　{r['volume']//10000}万手" if show_vol else ""
+            lines.append(f"**{r['symbol']}** {pct_str}　{r['name']}{vol_str}")
+        return "\n".join(lines)
+
+    gainers_text = _rows(movers.get("gainers", []))
+    losers_text  = _rows(movers.get("losers",  []))
+    actives_text = _rows(movers.get("actives", []), show_vol=True)
+
+    sentiment = analysis.get("sentiment", "震荡")
+    sentiment_reason = analysis.get("sentiment_reason", "")
+    highlights = analysis.get("highlights", "")
+    ai_analysis = analysis.get("analysis", [])
+    model = analysis.get("_model", "GLM")
+
+    # 整体情绪颜色
+    color = {"偏多": "green", "偏空": "red"}.get(sentiment, "blue")
+
+    # AI 逐股分析文本
+    ai_lines = [f"**{a['symbol']}**：{a['reason']}" for a in ai_analysis if a.get("reason")]
+    ai_text = "\n".join(ai_lines) if ai_lines else "暂无重点个股分析"
+
+    elements = [
+        {"tag": "div", "text": {"tag": "lark_md",
+            "content": f"**市场情绪：{sentiment}**　{sentiment_reason}"}},
+    ]
+    if highlights:
+        elements.append({"tag": "div", "text": {"tag": "lark_md",
+            "content": f"**🔥 今日热点**　{highlights}"}})
+    elements += [
+        {"tag": "hr"},
+        {"tag": "div", "text": {"tag": "lark_md",
+            "content": f"**📈 涨幅榜**\n{gainers_text}"}},
+        {"tag": "hr"},
+        {"tag": "div", "text": {"tag": "lark_md",
+            "content": f"**📉 跌幅榜**\n{losers_text}"}},
+        {"tag": "hr"},
+        {"tag": "div", "text": {"tag": "lark_md",
+            "content": f"**🔊 成交量榜**\n{actives_text}"}},
+        {"tag": "hr"},
+        {"tag": "div", "text": {"tag": "lark_md",
+            "content": f"**🤖 AI 分析**\n{ai_text}"}},
+        {"tag": "note", "elements": [
+            {"tag": "plain_text",
+             "content": f"🤖 {model} 分析 · yfinance 数据 · 仅供参考"}
+        ]},
+    ]
+
+    card = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {"tag": "plain_text", "content": f"📊 美股热点 · {et_time}"},
+                "template": color,
+            },
+            "elements": elements,
+        },
+    }
+
+    if secret:
+        ts, sig = _sign(secret)
+        card["timestamp"] = ts
+        card["sign"] = sig
+
+    try:
+        resp = requests.post(webhook, json=card, timeout=10)
+        data = resp.json()
+        ok = data.get("code") == 0 or data.get("StatusCode") == 0
+        if ok:
+            logger.info("美股热点推送成功")
+        else:
+            logger.error("美股热点推送失败: %s", data)
+        return ok
+    except Exception as e:
+        logger.error("美股热点推送异常: %s", e)
+        return False
