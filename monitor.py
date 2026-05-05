@@ -1,6 +1,6 @@
 #!/usr/bin/env python3.11
 """
-社交媒体监控 → 智谱翻译分析 → 飞书推送
+社交媒体监控 → MiMo 翻译分析 → 飞书推送
 
 支持平台：
   truthsocial  - Truth Social RSS（无需 key）
@@ -22,9 +22,17 @@ from datetime import datetime, timezone, timedelta
 
 CST = timezone(timedelta(hours=8))
 
-import httpx
 from dotenv import load_dotenv
-from zhipuai import ZhipuAI
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+try:
+    from zhipuai import ZhipuAI
+except ImportError:
+    ZhipuAI = None
 
 import analyzer
 import sender
@@ -77,8 +85,8 @@ def load_accounts() -> list[dict]:
         return json.load(f)
 
 
-def process_account(account: dict, zhipu_client, webhook: str,
-                    secret: str, model: str, auth_token: str,
+def process_account(account: dict, llm_client, webhook: str,
+                    secret: str, models: list[str], auth_token: str,
                     market_context: str = "", market_snapshot: dict = None) -> bool:
     """处理单个账号，返回 False 表示 Cookie 失效需停止该账号。"""
     name = account.get("name", account["handle"])
@@ -110,23 +118,23 @@ def process_account(account: dict, zhipu_client, webhook: str,
     for post in posts:
         logger.info("[%s] 分析: %s...", name, post["text"][:60])
         try:
-            result = analyzer.analyze(zhipu_client, post["text"], model,
+            result = analyzer.analyze(llm_client, post["text"], models,
                                       market_context=market_context)
         except Exception as e:
             logger.error("[%s] AI 服务不可用，推送原文: %s", name, e)
             result = {"_raw": True}
-        sender.send(webhook, account, post, result, secret, model,
+        sender.send(webhook, account, post, result, secret, models[0],
                     market_snapshot=market_snapshot)
         time.sleep(1)
 
     return True
 
 
-def run_once(zhipu_client, webhook: str, secret: str, model: str, auth_token: str):
+def run_once(llm_client, webhook: str, secret: str, models: list[str], auth_token: str):
     market_context, market_snapshot = market_fetcher.fetch()
     accounts = load_accounts()
     for account in accounts:
-        process_account(account, zhipu_client, webhook, secret, model, auth_token,
+        process_account(account, llm_client, webhook, secret, models, auth_token,
                         market_context, market_snapshot)
 
 
@@ -138,58 +146,83 @@ def main():
                         help="轮询间隔（秒），默认读取 .env 中的 POLL_INTERVAL")
     args = parser.parse_args()
 
-    zhipu_key = os.getenv("ZHIPU_API_KEY")
+    provider = os.getenv("LLM_PROVIDER", "mimo")
+    model = os.getenv("LLM_MODEL", "")
+    auth_token = os.getenv("X_AUTH_TOKEN", "")
     webhook = os.getenv("FEISHU_WEBHOOK_URL")
     secret = os.getenv("FEISHU_SECRET", "")
-    model = os.getenv("ZHIPU_MODEL", "glm-4-flash")
-    auth_token = os.getenv("X_AUTH_TOKEN", "")
 
-    if not zhipu_key:
-        raise SystemExit("❌ 请在 .env 中设置 ZHIPU_API_KEY")
     if not webhook:
         raise SystemExit("❌ 请在 .env 中设置 FEISHU_WEBHOOK_URL")
 
-    zhipu_client = ZhipuAI(
-        api_key=zhipu_key,
-        timeout=httpx.Timeout(connect=5.0, read=40.0, write=10.0, pool=5.0),
-        max_retries=0,
-    )
+    # 根据 provider 读取对应的 API Key 和 base_url，并选择 SDK
+    PROVIDER_CONFIG = {
+        "mimo":   {"key_env": "MIMO_API_KEY",  "base_url": "https://api.xiaomimimo.com/v1"},
+        "zhipu":  {"key_env": "ZHIPU_API_KEY", "base_url": "https://open.bigmodel.cn/api/paas/v4"},
+        "openai": {"key_env": "OPENAI_API_KEY", "base_url": "https://api.openai.com/v1"},
+    }
+    cfg = PROVIDER_CONFIG.get(provider, PROVIDER_CONFIG["mimo"])
+    api_key = os.getenv(cfg["key_env"])
+    if not api_key:
+        raise SystemExit(f"❌ 请在 .env 中设置 {cfg['key_env']}（当前 provider={provider}）")
+
+    models = analyzer.get_model_list(provider, model)
+    logger.info("📡 LLM provider=%s, models=%s", provider, models)
+
+    # 创建 LLM 客户端：优先用 openai SDK（通用），不可用时降级到 zhipuai SDK
+    if OpenAI is not None:
+        llm_client = OpenAI(api_key=api_key, base_url=cfg["base_url"])
+    elif ZhipuAI is not None:
+        logger.info("openai SDK 不可用，使用 zhipuai SDK")
+        llm_client = ZhipuAI(api_key=api_key)
+    else:
+        raise SystemExit("❌ 请安装 openai 或 zhipuai SDK: pip install openai")
 
     quiet = os.getenv("QUIET_HOURS", "")
 
-    MARKET_PUSH_INTERVAL = 30 * 60  # 30分钟
+    MARKET_PUSH_DELAY = 15 * 60  # 开盘后等待 15 分钟再推送
+    MARKET_PUSH_INTERVAL = 30 * 60  # 之后每 30 分钟一次
 
     if args.watch:
         logger.info("🚀 监控启动，间隔 %ds，共 %d 个账号%s",
                     args.interval, len(load_accounts()),
                     f"，免打扰时段 {quiet}" if quiet else "")
         last_market_push = 0.0
+        market_open_since = 0.0
         while True:
             try:
                 # 社交媒体监控（受免打扰时段控制）
                 if in_quiet_hours(quiet):
                     logger.info("😴 当前处于免打扰时段（%s），跳过本轮", quiet)
                 else:
-                    run_once(zhipu_client, webhook, secret, model, auth_token)
+                    run_once(llm_client, webhook, secret, models, auth_token)
 
-                # 美股热点推送（开盘时段，每15分钟一次，不受免打扰限制）
+                # 美股热点推送（开盘后 15 分钟开始推送，不受免打扰限制）
                 now = time.time()
-                if movers_fetcher.is_market_open() and now - last_market_push >= MARKET_PUSH_INTERVAL:
-                    try:
-                        logger.info("📊 美股开盘中，推送热点榜单...")
-                        movers = movers_fetcher.fetch(count=5)
-                        if movers:
-                            analysis = analyzer.analyze_movers(zhipu_client, movers, model)
-                            sender.send_market_movers(webhook, movers, analysis, secret)
-                            last_market_push = now
-                    except Exception as e:
-                        logger.error("美股热点推送异常: %s", e)
+                if movers_fetcher.is_market_open():
+                    if market_open_since == 0.0:
+                        market_open_since = now
+                    if now - market_open_since >= MARKET_PUSH_DELAY and (
+                            last_market_push == 0.0 or
+                            now - last_market_push >= MARKET_PUSH_INTERVAL):
+                        try:
+                            logger.info("📊 美股开盘中，推送热点榜单...")
+                            movers = movers_fetcher.fetch(count=5)
+                            if movers:
+                                analysis = analyzer.analyze_movers(llm_client, movers, models)
+                                sender.send_market_movers(webhook, movers, analysis, secret)
+                                last_market_push = now
+                        except Exception as e:
+                            logger.error("美股热点推送异常: %s", e)
+                else:
+                    market_open_since = 0.0
+                    last_market_push = 0.0
 
             except Exception as e:
                 logger.error("主循环异常: %s", e)
             time.sleep(args.interval)
     else:
-        run_once(zhipu_client, webhook, secret, model, auth_token)
+        run_once(llm_client, webhook, secret, models, auth_token)
 
 
 if __name__ == "__main__":

@@ -24,12 +24,21 @@ SYSTEM_PROMPT = """你是专业的政治新闻翻译兼金融市场分析师。
 
 irrelevant=true 表示帖子与市场完全无关，此时 market 各项填中性即可。"""
 
-MODEL_FALLBACK = [
-    "glm-4.7",
-    "glm-4.6v-flashx",
-    "glm-4.6v",
-    "glm-4.5-air",
-]
+PROVIDER_MODELS = {
+    "mimo":   ["mimo-v2.5", "mimo-v2-flash"],
+    "zhipu":  ["glm-4.7", "glm-4.6v-flashx", "glm-4.6v", "glm-4.5-air"],
+    "openai": ["gpt-4o", "gpt-4o-mini"],
+}
+
+
+def get_model_list(provider: str, model: str = "") -> list[str]:
+    """根据 provider 和指定 model 构建降级列表。model 会排在最前面。"""
+    fallbacks = PROVIDER_MODELS.get(provider, PROVIDER_MODELS["mimo"])
+    if model and model not in fallbacks:
+        return [model] + fallbacks
+    if model:
+        return fallbacks[fallbacks.index(model):]
+    return fallbacks
 
 
 def _extract_json(raw: str) -> dict:
@@ -45,10 +54,8 @@ def _extract_json(raw: str) -> dict:
     return json.loads(raw[start:end])
 
 
-def analyze(client, text: str, model: str = "", market_context: str = "") -> dict:
-    """依次尝试 MODEL_FALLBACK 中的模型，失败自动降级。全部失败则 raise RuntimeError。"""
-    models = MODEL_FALLBACK if not model or model not in MODEL_FALLBACK else \
-             MODEL_FALLBACK[MODEL_FALLBACK.index(model):]
+def analyze(client, text: str, models: list[str], market_context: str = "") -> dict:
+    """依次尝试 models 中的模型，失败自动降级。全部失败则 raise RuntimeError。"""
 
     system_content = f"{market_context}\n\n{SYSTEM_PROMPT}" if market_context else SYSTEM_PROMPT
 
@@ -73,7 +80,7 @@ def analyze(client, text: str, model: str = "", market_context: str = "") -> dic
             logger.warning("模型 %s 分析失败: %s", m, e)
             last_err = e
 
-    raise RuntimeError("所有模型均失败，智谱服务不可用")
+    raise RuntimeError("所有模型均失败，LLM 服务不可用")
 
 
 MOVERS_PROMPT = """你是专业的美股市场分析师。
@@ -97,10 +104,8 @@ MOVERS_PROMPT = """你是专业的美股市场分析师。
 只对涨跌幅超过 5% 的个股给出 reason，其余可忽略。"""
 
 
-def analyze_movers(client, movers: dict, model: str = "") -> dict:
+def analyze_movers(client, movers: dict, models: list[str]) -> dict:
     """分析美股热点涨跌原因，失败返回空 dict。"""
-    models = MODEL_FALLBACK if not model or model not in MODEL_FALLBACK else \
-             MODEL_FALLBACK[MODEL_FALLBACK.index(model):]
 
     def _fmt(items, label):
         lines = [label]

@@ -1,4 +1,5 @@
 .env
+.cc-connect/
 seen_*.json
 monitor.pid
 monitor.log
