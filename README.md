@@ -2,9 +2,11 @@
 
 [English](#english) | [中文](#中文)
 
-社交媒体监控 → LLM 翻译分析 → 飞书推送 | Social Media Monitor → LLM Analysis → Feishu Push
+---
 
 ## 中文
+
+社交媒体监控 → LLM 翻译分析 → 飞书推送
 
 ### 简介
 
@@ -79,6 +81,8 @@ LLM_MODEL=             # 指定模型，留空用默认
 ---
 
 ## English
+
+Social Media Monitor → LLM Analysis → Feishu Push
 
 ### Overview
 
