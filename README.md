@@ -2,9 +2,17 @@
 
 社交媒体监控 → LLM 翻译分析 → 飞书推送
 
+---
+
+Social Media Monitor → LLM Analysis → Feishu Push
+
+## 中文
+
+### 简介
+
 监控 Truth Social 和 X (Twitter) 账号，自动翻译分析帖子内容，推送市场影响判断到飞书群。
 
-## 功能
+### 功能
 
 - 多平台支持：Truth Social (RSS)、X/Twitter
 - 多账号监控：编辑 `accounts.json` 即可，无需改代码
@@ -14,7 +22,7 @@
 - 飞书卡片推送：带行情快照、信号颜色标记
 - 免打扰时段：可配置静默时间
 
-## 快速开始
+### 快速开始
 
 ```bash
 # 安装依赖
@@ -36,9 +44,9 @@ bash stop.sh    # 停止
 bash status.sh  # 查看状态
 ```
 
-## 配置
+### 配置
 
-### LLM Provider
+#### LLM Provider
 
 在 `.env` 中切换：
 
@@ -55,7 +63,7 @@ LLM_MODEL=             # 指定模型，留空用默认
 | zhipu    | glm-4.7 | glm-4.6v-flashx, glm-4.6v, glm-4.5-air |
 | openai   | gpt-4o | gpt-4o-mini |
 
-### 监控账号
+#### 监控账号
 
 编辑 `accounts.json`：
 
@@ -66,19 +74,95 @@ LLM_MODEL=             # 指定模型，留空用默认
 ]
 ```
 
-### 美股热点
+#### 美股热点
 
 需要 Twelve Data API Key（[twelvedata.com](https://twelvedata.com)），填入 `TWELVEDATA_API_KEY`。
 
-## 项目结构
+---
+
+## English
+
+### Overview
+
+Monitor Truth Social and X (Twitter) accounts, automatically translate and analyze posts, and push market impact assessments to a Feishu (Lark) group.
+
+### Features
+
+- Multi-platform: Truth Social (RSS) and X/Twitter
+- Multi-account: edit `accounts.json`, no code changes needed
+- LLM analysis: auto-translation + US stocks / oil / rates impact
+- US market movers: gainers/losers/actives with AI analysis during market hours
+- Multiple LLM providers: MiMo / Zhipu / OpenAI, switchable via env var
+- Feishu card push: market snapshot, color-coded signals
+- Quiet hours: configurable do-not-disturb window
+
+### Quick Start
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your API keys
+
+# Run once
+python3.11 monitor.py
+
+# Continuous monitoring
+python3.11 monitor.py --watch
+
+# Or use scripts
+bash start.sh   # Start in background
+bash stop.sh    # Stop
+bash status.sh  # Check status
+```
+
+### Configuration
+
+#### LLM Provider
+
+Switch in `.env`:
 
 ```
-monitor.py      # 主程序入口
-analyzer.py     # LLM 分析（翻译 + 市场影响 + 热点分析）
-sender.py       # 飞书推送（卡片消息）
-fetchers/       # 数据源
+LLM_PROVIDER=mimo      # MiMo API (default)
+LLM_PROVIDER=zhipu     # Zhipu AI
+LLM_PROVIDER=openai    # OpenAI
+LLM_MODEL=             # Specific model, leave empty for default
+```
+
+| Provider | Default | Fallbacks |
+|----------|---------|-----------|
+| mimo     | mimo-v2.5 | mimo-v2-flash |
+| zhipu    | glm-4.7 | glm-4.6v-flashx, glm-4.6v, glm-4.5-air |
+| openai   | gpt-4o | gpt-4o-mini |
+
+#### Monitored Accounts
+
+Edit `accounts.json`:
+
+```json
+[
+  {"name": "Trump", "platform": "truthsocial", "handle": "realDonaldTrump"},
+  {"name": "Musk", "platform": "x", "handle": "elonmusk"}
+]
+```
+
+#### US Market Movers
+
+Requires a Twelve Data API key ([twelvedata.com](https://twelvedata.com)) — set `TWELVEDATA_API_KEY`.
+
+---
+
+## Project Structure
+
+```
+monitor.py      # Entry point
+analyzer.py     # LLM analysis (translation + market impact + movers)
+sender.py       # Feishu push (card messages)
+fetchers/       # Data sources
   truthsocial.py  # Truth Social RSS
   x.py            # X/Twitter
-  market.py       # 实时行情
-  movers.py       # 美股涨跌榜
+  market.py       # Real-time quotes
+  movers.py       # US market movers
 ```
