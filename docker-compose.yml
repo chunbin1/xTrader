@@ -1,0 +1,14 @@
+services:
+  xtrader:
+    build: .
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      # 去重状态文件持久化，容器重启不丢失
+      - ./data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,6 +1,6 @@
 .env
 .cc-connect/
-seen_*.json
+data/
 monitor.pid
 monitor.log
 elon_monitor.*

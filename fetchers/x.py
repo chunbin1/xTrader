@@ -17,7 +17,9 @@ class CookieExpiredError(Exception):
 
 def _seen_file(handle: str) -> str:
     base = os.path.dirname(os.path.dirname(__file__))
-    return os.path.join(base, f"seen_{handle}.json")
+    data_dir = os.path.join(base, "data")
+    os.makedirs(data_dir, exist_ok=True)
+    return os.path.join(data_dir, f"seen_{handle}.json")
 
 
 def _load_seen(handle: str) -> set:
