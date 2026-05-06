@@ -35,13 +35,16 @@ def _save_seen(handle: str, seen: set):
 
 
 def fetch(account: dict) -> list[dict]:
-    """抓取 Truth Social RSS，返回新帖列表。"""
+    """抓取 Truth Social RSS，返回新帖列表。seen 文件不存在时视为首次启动，只标记已读不推送。"""
     handle = account["handle"]
     rss_url = account.get("rss_url", f"https://truthsocial.com/@{handle}.rss")
+    first_run = not os.path.exists(_seen_file(handle))
     seen = _load_seen(handle)
     seen_file = _seen_file(handle)
 
     logger.debug("[%s] 已读取 seen 文件: %s（%d 条记录）", handle, seen_file, len(seen))
+    if first_run:
+        logger.info("[%s] 首次启动，仅标记已有帖子为已读，不推送", handle)
 
     feed = feedparser.parse(rss_url)
     logger.debug("[%s] RSS 返回 %d 条条目", handle, len(feed.entries))
@@ -69,18 +72,19 @@ def fetch(account: dict) -> list[dict]:
 
         logger.info("[%s] 新帖 ID=%s 时间=%s 内容=%s...",
                     handle, pid, pub, text[:40])
-        new_posts.append({
-            "id": pid,
-            "text": text,
-            "link": entry.get("link", ""),
-            "published": pub,
-        })
+        if not first_run:
+            new_posts.append({
+                "id": pid,
+                "text": text,
+                "link": entry.get("link", ""),
+                "published": pub,
+            })
         seen.add(pid)
 
     logger.info("[%s] 本轮结果：新帖 %d 条，已读跳过 %d 条，空帖跳过 %d 条",
                 handle, len(new_posts), skipped_seen, skipped_empty)
 
-    if new_posts:
+    if new_posts or first_run:
         _save_seen(handle, seen)
         logger.debug("[%s] seen 文件已更新，当前共 %d 条", handle, len(seen))
 
