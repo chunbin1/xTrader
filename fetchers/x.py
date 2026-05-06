@@ -35,14 +35,16 @@ def _save_seen(handle: str, seen: set):
         json.dump(list(seen), f)
 
 
-def fetch(account: dict, auth_token: str, limit: int = 20) -> list[dict]:
+def fetch(account: dict, auth_token: str, limit: int = 20, init_only: bool = False) -> list[dict]:
     """抓取 X 用户推文，返回新推文列表。Cookie 失效时抛 CookieExpiredError。
-    seen 文件不存在时视为首次启动，只标记已读不推送。"""
+    init_only=True 或 seen 文件不存在时，只标记已读不推送。"""
     handle = account["handle"]
     first_run = not os.path.exists(_seen_file(handle))
+    skip_send = init_only or first_run
     seen = _load_seen(handle)
-    if first_run:
-        logger.info("[%s] 首次启动，仅标记已有推文为已读，不推送", handle)
+    if skip_send:
+        logger.info("[%s] %s，仅标记已有推文为已读，不推送", handle,
+                    "首次启动" if first_run else "--init 模式")
 
     try:
         client = Scweet(
@@ -73,7 +75,7 @@ def fetch(account: dict, auth_token: str, limit: int = 20) -> list[dict]:
                 .strftime("%Y-%m-%d %H:%M 北京时间")
         except Exception:
             pub = raw_time
-        if not first_run:
+        if not skip_send:
             new_tweets.append({
                 "id": tid,
                 "text": text,
@@ -82,7 +84,7 @@ def fetch(account: dict, auth_token: str, limit: int = 20) -> list[dict]:
             })
         seen.add(tid)
 
-    if new_tweets or first_run:
+    if new_tweets or skip_send:
         _save_seen(handle, seen)
 
     return list(reversed(new_tweets))

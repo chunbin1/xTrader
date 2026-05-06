@@ -141,6 +141,7 @@ def run_once(llm_client, webhook: str, secret: str, models: list[str], auth_toke
 def main():
     parser = argparse.ArgumentParser(description="社交媒体监控推送飞书")
     parser.add_argument("--watch", action="store_true", help="持续监控模式")
+    parser.add_argument("--init", action="store_true", help="只标记当前帖子为已读，不推送（重启前用）")
     parser.add_argument("--interval", type=int,
                         default=int(os.getenv("POLL_INTERVAL", "120")),
                         help="轮询间隔（秒），默认读取 .env 中的 POLL_INTERVAL")
@@ -182,6 +183,25 @@ def main():
 
     MARKET_PUSH_DELAY = 15 * 60  # 开盘后等待 15 分钟再推送
     MARKET_PUSH_INTERVAL = 30 * 60  # 之后每 30 分钟一次
+
+    if args.init:
+        logger.info("🔄 --init 模式：标记所有现有帖子为已读，不推送飞书")
+        accounts = load_accounts()
+        for account in accounts:
+            platform = account["platform"]
+            name = account.get("name", account["handle"])
+            try:
+                if platform == "truthsocial":
+                    truthsocial.fetch(account, init_only=True)
+                elif platform == "x":
+                    if auth_token:
+                        x_fetcher.fetch(account, auth_token, init_only=True)
+                    else:
+                        logger.warning("[%s] 未配置 X_AUTH_TOKEN，跳过", name)
+            except Exception as e:
+                logger.error("[%s] init 失败: %s", name, e)
+        logger.info("✅ init 完成，现在可以正常启动：python monitor.py --watch")
+        return
 
     if args.watch:
         logger.info("🚀 监控启动，间隔 %ds，共 %d 个账号%s",
